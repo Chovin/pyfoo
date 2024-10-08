@@ -1,3 +1,5 @@
+import aiohttp
+
 try:
     import urllib.request as urllib_request
     import urllib.parse as urllib_parse
@@ -83,24 +85,25 @@ class Field(WufooObject):
 
 
 class Form(WufooObject):
-    def search_entries(self, parameters):
+    async def search_entries(self, parameters):
         output = {}
         for index in range(len(parameters)):
             param = parameters[index]
             output['Filter%s' % (index + 1)] = "%s__%s__%s" % (param.field, param.operator, param.value)
         filter_string = urlencode(output).replace('__', '+')
-        return self.get_entries(filter_string=filter_string)
+        return await self.get_entries(filter_string=filter_string)
 
-    def get_entries(self, page_start=0, page_size=100, sort_field='DateCreated', sort_direction='DESC', filter_string=None):
+    async def get_entries(self, page_start=0, page_size=100, sort_field='DateCreated', sort_direction='DESC', filter_string=None):
         url = "%s?system=true&pageStart=%s&pageSize=%s&sort=%s&sortDirection=%s" % (self.LinkEntries, page_start, page_size, sort_field, sort_direction)
         if filter_string:
             url = "%s&%s" % (url, filter_string)
-        entries_json = self.api.make_call(url)
+        entries_json = await self.api.make_call(url)
         entries = [Entry(fields=entry, form=self) for entry in entries_json['Entries']]
         return entries
     
-    def get_field(self, title):
-        field = [field for field in self.fields if field.Title == title]
+    async def get_field(self, title):
+        fields = await self.fields()
+        field = [field for field in fields if field.Title == title]
         if len(field) > 1:
             return field
         elif len(field) > 0:
@@ -108,17 +111,15 @@ class Form(WufooObject):
         else:
             return None
     
-    @property
-    def fields(self):
+    async def fields(self):
         if not hasattr(self, '_fields'):
-            fields_json = self.api.make_call(self.LinkFields)
+            fields_json = await self.api.make_call(self.LinkFields)
             self._fields = [Field(self.api, field) for field in fields_json['Fields']]
         return self._fields
         
-    @property
-    def entry_count(self):
+    async def entry_count(self):
         #if not hasattr(self, '_entry_count'):
-        fields_json = self.api.make_call(self.LinkEntriesCount)
+        fields_json = await self.api.make_call(self.LinkEntriesCount)
         try:
             self._entry_count = int(fields_json['EntryCount'])
         except:
@@ -258,49 +259,43 @@ class PyfooAPI(object):
             self.api_key = response['ApiKey']
             self.account = response['Subdomain']
             
-    def make_call(self, url, post_params=None, method=None):
-        password_mgr = urllib_request.HTTPPasswordMgrWithDefaultRealm()
-        if self.account:
-            top_level_url = "https://%s.wufoo.com/api/v3" % self.account
-        else:
-            top_level_url = "https://wufoo.com/api/v3"
-        password_mgr.add_password(None, top_level_url, self.api_key, "footastic")
-        handler = urllib_request.HTTPBasicAuthHandler(password_mgr)
-        opener = urllib_request.build_opener(handler)
-        urllib_request.install_opener(opener)
+    async def make_call(self, url, post_params=None, method=None):
         
         if post_params:
-            data = urllib_parse.urlencode(post_params)
-            request = urllib_request.Request(url, data=data)
-            if method:
-                request.get_method = lambda: method
-            response = opener.open(request)
+            method = (method and method.lower()) or 'post'
+            async with aiohttp.ClientSession() as session:
+                async with getattr(session, method)(url, json=post_params) as resp:
+                    assert resp.status == 200
+                    json_object = await resp.json()
         else:
-            response = opener.open(url)
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url, auth=aiohttp.BasicAuth(akey, 'footastic')) as resp:
+                    assert resp.status == 200
+                    json_object = await resp.json()
         
-        json_string = response.read()        
+        # json_string = response.read()        
         
-        post_params_string = ''
-        if post_params:
-            post_params_string = ''.join(list(post_params.keys()))
+        # post_params_string = ''
+        # if post_params:
+        #     post_params_string = ''.join(list(post_params.keys()))
 
-        if self.test_json_dir:
-            with open(os.path.join(
-                    self.test_json_dir,
-                    '%s%s.json' % (url.replace('/', '_'),
-                post_params_string)
-                ), 'w' ) as test_script:
-                test_script.write(json_string)
-                test_script.close()
+        # if self.test_json_dir:
+        #     with open(os.path.join(
+        #             self.test_json_dir,
+        #             '%s%s.json' % (url.replace('/', '_'),
+        #         post_params_string)
+        #         ), 'w' ) as test_script:
+        #         test_script.write(json_string)
+        #         test_script.close()
 
-        try:
-            json_object = json.loads(json_string.decode('utf8'))
+        # try:
+        #     json_object = json.loads(json_string.decode('utf8'))
             
-        except Exception as ex:
-            print(url)
-            print(json_string)
+        # except Exception as ex:
+        #     print(url)
+        #     print(json_string)
             
-            raise ex
+        #    raise ex
         return json_object
 
     # Users
@@ -312,10 +307,9 @@ class PyfooAPI(object):
         return self._users
 
     # Forms
-    @property
-    def forms(self):
+    async def forms(self):
         if not hasattr(self, '_forms'):
-            forms_json = self.make_call('https://%s.wufoo.com/api/v3/forms.json' % self.account)
+            forms_json = await self.make_call('https://%s.wufoo.com/api/v3/forms.json' % self.account)
             self._forms = [Form(self, form_dict) for form_dict in forms_json['Forms']]
         return self._forms
     
