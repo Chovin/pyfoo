@@ -264,7 +264,7 @@ class PyfooAPI(object):
         if post_params:
             method = (method and method.lower()) or 'post'
             async with aiohttp.ClientSession() as session:
-                async with getattr(session, method)(url, json=post_params) as resp:
+                async with getattr(session, method)(url, auth=aiohttp.BasicAuth(self.api_key, 'footastic'), json=post_params) as resp:
                     assert resp.status == 200
                     json_object = await resp.json()
         else:
