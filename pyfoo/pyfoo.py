@@ -269,7 +269,7 @@ class PyfooAPI(object):
                     json_object = await resp.json()
         else:
             async with aiohttp.ClientSession() as session:
-                async with session.get(url, auth=aiohttp.BasicAuth(akey, 'footastic')) as resp:
+                async with session.get(url, auth=aiohttp.BasicAuth(self.api_key, 'footastic')) as resp:
                     assert resp.status == 200
                     json_object = await resp.json()
         
